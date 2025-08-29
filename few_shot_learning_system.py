@@ -9,7 +9,6 @@ import torch.optim as optim
 from meta_neural_network_architectures import VGGReLUNormNetwork
 from inner_loop_optimizers import LSLRGradientDescentLearningRule
 
-
 def set_torch_seed(seed):
     """
     Sets the pytorch seeds for current experiment run
