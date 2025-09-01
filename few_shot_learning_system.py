@@ -8,6 +8,8 @@ import torch.optim as optim
 
 from meta_neural_network_architectures import VGGReLUNormNetwork
 from inner_loop_optimizers import LSLRGradientDescentLearningRule
+from utils.anyway_utils import build_non_overlapping_assignments, anyway_loss, anyway_ensemble_logits
+import random
 
 def set_torch_seed(seed):
     """
@@ -39,9 +41,13 @@ class MAMLFewShotClassifier(nn.Module):
         self.current_epoch = 0
 
         self.rng = set_torch_seed(seed=args.seed)
-        self.classifier = VGGReLUNormNetwork(im_shape=self.im_shape, num_output_classes=self.args.
-                                             num_classes_per_set,
+
+        num_output_classes = self.args.output_node if self.args.any_way_setting else self.args.num_classes_per_set
+
+        self.classifier = VGGReLUNormNetwork(im_shape=self.im_shape, num_output_classes=num_output_classes,
                                              args=args, device=device, meta_classifier=True).to(device=self.device)
+
+
         self.task_learning_rate = args.task_learning_rate
 
         self.inner_loop_optimizer = LSLRGradientDescentLearningRule(device=device,
@@ -78,6 +84,8 @@ class MAMLFewShotClassifier(nn.Module):
                 self.to(torch.cuda.current_device())
 
             self.device = torch.cuda.current_device()
+
+        self._py_rng = random.Random(int(self.args.seed))
 
     def get_per_step_loss_importance_vector(self):
         """
@@ -189,6 +197,7 @@ class MAMLFewShotClassifier(nn.Module):
         per_task_target_preds = [[] for i in range(len(x_target_set))]
         self.classifier.zero_grad()
         task_accuracies = []
+
         for task_id, (x_support_set_task, y_support_set_task, x_target_set_task, y_target_set_task) in enumerate(zip(x_support_set,
                               y_support_set,
                               x_target_set,
@@ -211,6 +220,18 @@ class MAMLFewShotClassifier(nn.Module):
             x_target_set_task = x_target_set_task.view(-1, c, h, w)
             y_target_set_task = y_target_set_task.view(-1)
 
+
+            N = ncs
+            if self.args.any_way_setting:
+                O = self.args.output_node
+                S = build_non_overlapping_assignments(O=O, N=N, rng=self._py_rng)  # ★ 에피소드당 한 번
+            else:
+                S = None
+
+            print("N ===", N)
+            print("S == ", S)
+
+
             for num_step in range(num_steps):
 
                 support_loss, support_preds = self.net_forward(
@@ -220,6 +241,7 @@ class MAMLFewShotClassifier(nn.Module):
                     backup_running_statistics=num_step == 0,
                     training=True,
                     num_step=num_step,
+                    S=S
                 )
 
 
@@ -239,7 +261,8 @@ class MAMLFewShotClassifier(nn.Module):
                     target_loss, target_preds = self.net_forward(x=x_target_set_task,
                                                                  y=y_target_set_task, weights=names_weights_copy,
                                                                  backup_running_statistics=False, training=True,
-                                                                 num_step=num_step)
+                                                                 num_step=num_step,
+                                                                 S=S)
                     task_losses.append(target_loss)
 
             per_task_target_preds[task_id] = target_preds.detach().cpu().numpy()
@@ -261,28 +284,36 @@ class MAMLFewShotClassifier(nn.Module):
 
         return losses, per_task_target_preds
 
-    def net_forward(self, x, y, weights, backup_running_statistics, training, num_step):
-        """
-        A base model forward pass on some data points x. Using the parameters in the weights dictionary. Also requires
-        boolean flags indicating whether to reset the running statistics at the end of the run (if at evaluation phase).
-        A flag indicating whether this is the training session and an int indicating the current step's number in the
-        inner loop.
-        :param x: A data batch of shape b, c, h, w
-        :param y: A data targets batch of shape b, n_classes
-        :param weights: A dictionary containing the weights to pass to the network.
-        :param backup_running_statistics: A flag indicating whether to reset the batch norm running statistics to their
-         previous values after the run (only for evaluation)
-        :param training: A flag indicating whether the current process phase is a training or evaluation.
-        :param num_step: An integer indicating the number of the step in the inner loop.
-        :return: the crossentropy losses with respect to the given y, the predictions of the base model.
-        """
-        preds = self.classifier.forward(x=x, params=weights,
-                                        training=training,
-                                        backup_running_statistics=backup_running_statistics, num_step=num_step)
+    def net_forward(self, x, y, weights, backup_running_statistics, training, num_step, S=None):
 
-        loss = F.cross_entropy(input=preds, target=y)
+        """
+        - Any-Way OFF:  CE(preds_O, y), preds_O 반환
+        - Any-Way ON :  L = Σ_j CE(preds_O[:, s_j], y) (또는 평균),  preds_N = Σ_j preds_O[:, s_j]
+        """
 
-        return loss, preds
+        # 1) O-way 로짓
+        preds_O = self.classifier.forward(
+            x=x, params=weights,
+            training=training,
+            backup_running_statistics=backup_running_statistics,
+            num_step=num_step
+        )  # (B, O)
+
+        # 2) Any-Way OFF이면 기존 경로
+        if not getattr(self.args, "any_way_setting", False):
+            loss = F.cross_entropy(preds_O, y)
+            return loss, preds_O
+
+        # 3) Any-Way ON: 에피소드에서 만든 S 필수 (support/target 모두 같은 S 사용)
+        assert S is not None, "Any-Way enabled: you must pass the episode assignments S."
+
+        # 손실: 할당별 CE 합(또는 평균)
+        loss = anyway_loss(preds_O, y, S)  # 평균 쓰려면 anyway_loss에서 mean으로 구현
+
+        # 정확도용 N-way 로짓: 할당 로짓 합
+        preds_N = anyway_ensemble_logits(preds_O, S)  # (B, N)
+
+        return loss, preds_N
 
     def trainable_parameters(self):
         """

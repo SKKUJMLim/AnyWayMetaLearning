@@ -53,5 +53,6 @@
 
   "second_order": true,
   "use_multi_step_loss_optimization":false,
-  "any_way_setting": true
+  "any_way_setting": true,
+  "output_node": 30
 }

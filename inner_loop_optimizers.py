@@ -45,11 +45,12 @@ class GradientDescentLearningRule(nn.Module):
                 with respect to each of the parameters passed to `initialise`
                 previously, with this list expected to be in the same order.
         """
-        return {
-            key: names_weights_dict[key]
-            - self.learning_rate * names_grads_wrt_params_dict[key]
-            for key in names_weights_dict.keys()
-        }
+        updated_names_weights_dict = dict()
+        for key in names_weights_dict.keys():
+            updated_names_weights_dict[key] = names_weights_dict[key] - self.learning_rate * \
+                                              names_grads_wrt_params_dict[key]
+
+        return updated_names_weights_dict
 
 
 class LSLRGradientDescentLearningRule(nn.Module):
