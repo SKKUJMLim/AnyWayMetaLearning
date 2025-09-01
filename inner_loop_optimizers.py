@@ -47,8 +47,17 @@ class GradientDescentLearningRule(nn.Module):
         """
         updated_names_weights_dict = dict()
         for key in names_weights_dict.keys():
-            updated_names_weights_dict[key] = names_weights_dict[key] - self.learning_rate * \
-                                              names_grads_wrt_params_dict[key]
+
+            if self.args.any_way_setting:
+                if 'linear' in key:
+                    updated_names_weights_dict[key] = names_weights_dict[key] - self.learning_rate * \
+                                                      names_grads_wrt_params_dict[key]
+                else:
+                    updated_names_weights_dict[key] = names_weights_dict[key] - 0.0 * \
+                                                      names_grads_wrt_params_dict[key]
+            else:
+                updated_names_weights_dict[key] = names_weights_dict[key] - self.learning_rate * \
+                                                  names_grads_wrt_params_dict[key]
 
         return updated_names_weights_dict
 
