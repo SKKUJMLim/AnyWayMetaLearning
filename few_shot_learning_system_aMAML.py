@@ -6,8 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from meta_neural_network_architectures import VGGReLUNormNetwork
-from inner_loop_optimizers import LSLRGradientDescentLearningRule
+from meta_neural_network_architectures_aMAML import VGGReLUNormNetwork
+from inner_loop_optimizers_aMAML import LSLRGradientDescentLearningRule
 from utils.anyway_utils import build_non_overlapping_assignments, anyway_loss, anyway_ensemble_logits
 import random
 
