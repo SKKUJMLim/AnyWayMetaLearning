@@ -9,6 +9,7 @@ from multiprocessing import freeze_support
 if __name__ == '__main__':
 
     # python train_maml_system.py --name_of_args_json_file experiment_config/a-maml_miniImagenet.json --gpu_to_use 0
+    # python train_maml_system.py --name_of_args_json_file experiment_config/GNNAnyWay_miniImagenet.json --gpu_to_use 0
 
     freeze_support()
 

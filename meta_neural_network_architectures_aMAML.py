@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 import numpy as np
-import math
 
 
 def extract_top_level_dict(current_dict):
@@ -906,11 +905,10 @@ class VGGReLUNormNetwork(nn.Module):
         self.encoder_features_shape = list(out.shape)
         out = out.view(out.shape[0], -1)
 
-        # self.layer_dict['linear'] = MetaLinearLayer(input_shape=(out.shape[0], np.prod(out.shape[1:])),
-        #                                             num_filters=self.num_output_classes, use_bias=True)
-        #
-        # out = self.layer_dict['linear'](out)
+        self.layer_dict['linear'] = MetaLinearLayer(input_shape=(out.shape[0], np.prod(out.shape[1:])),
+                                                    num_filters=self.num_output_classes, use_bias=True)
 
+        out = self.layer_dict['linear'](out)
         print("VGGNetwork build", out.shape)
 
     def forward(self, x, num_step, params=None, training=False, backup_running_statistics=False):
@@ -951,8 +949,7 @@ class VGGReLUNormNetwork(nn.Module):
             out = F.avg_pool2d(out, out.shape[2])
 
         out = out.view(out.size(0), -1)
-
-        # out = self.layer_dict['linear'](out, param_dict['linear'])
+        out = self.layer_dict['linear'](out, param_dict['linear'])
 
         return out
 
@@ -1129,73 +1126,38 @@ class ResNet12(nn.Module):
             self.layer_dict['layer{}'.format(i)].restore_backup_stats()
 
 
-def normalize_adj(adj: torch.Tensor):
-    """
-    adj: [N, N] (0/1 혹은 가중 인접행렬), self-loop 미포함 가능
-    return: \hat{A} = D^{-1/2} (A + I) D^{-1/2}
-    """
-    N = adj.size(0)
-    A = adj
-    A = A + torch.eye(N, device=adj.device, dtype=adj.dtype)  # add self-loop
-    deg = A.sum(-1)                                           # [N]
-    deg_inv_sqrt = torch.pow(deg.clamp(min=1.0), -0.5)
-    D_inv_sqrt = torch.diag(deg_inv_sqrt)
-    return D_inv_sqrt @ A @ D_inv_sqrt
-
-
 class SimpleGNNLayer(nn.Module):
     def __init__(self, in_dim, out_dim):
         super().__init__()
         self.linear = nn.Linear(in_dim, out_dim)
 
-    def forward(self, x, adj_norm):
+    def forward(self, x, adj):
         """
-        x        : [N, d_in]  노드 feature
-        adj_norm : [N, N] 정규화된 adjacency (D^{-1/2} (A+I) D^{-1/2})
+        x   : [N, d_in]  노드 feature 행렬
+        adj : [N, N] adjacency matrix (self-loop 포함)
         """
-        agg = adj_norm @ x            # [N, d_in]
-        out = self.linear(agg)        # [N, d_out]
-        return F.relu(out, inplace=True)
-
+        agg = torch.matmul(adj, x)          # 이웃 feature 합산 [N, d_in]
+        out = self.linear(agg)              # [N, d_out]
+        return F.relu(out)
 
 class ClassifierWeightGenerator(nn.Module):
-    """
-    Linear classifier용 가중치/바이어스 생성기 (Any-Way 대응)
-    prototypes -> GNN -> [W, b]
-    """
-    def __init__(self, d_proto=512, hidden=256, out_dim=1600, use_bias=True, dropout_p=0.0):
+    def __init__(self, d_proto=512, hidden=256, out_dim=1600):
         super().__init__()
+        # 2-layer GNN
         self.gnn1 = SimpleGNNLayer(d_proto, hidden)
         self.gnn2 = SimpleGNNLayer(hidden, hidden)
-        self.dropout = nn.Dropout(dropout_p) if dropout_p > 0 else nn.Identity()
-        self.proj_W = nn.Linear(hidden, out_dim)   # 클래스별 weight (d_out = feat_dim)
-        self.use_bias = use_bias
-        if use_bias:
-            self.proj_b = nn.Linear(hidden, 1)     # 클래스별 bias
-
-        # 초기화: linear head 안정화
-        for m in [self.proj_W] + ([self.proj_b] if use_bias else []):
-            nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
-            if m.bias is not None:
-                fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
-                bound = 1 / math.sqrt(fan_in)
-                nn.init.uniform_(m.bias, -bound, bound)
+        # 마지막 projection: [hidden] -> [1600]
+        self.proj = nn.Linear(hidden, out_dim)
 
     def forward(self, prototypes, adj):
         """
-        prototypes: [N, d_proto]  (support로부터 추출한 클래스 프로토타입)
-        adj       : [N, N]        (클래스 간 그래프; 없으면 I 사용 가능)
-        return    : W [N, out_dim], b [N] (linear classifier용)
+        prototypes: [N, d_proto]
+        adj       : [N, N] adjacency matrix
+        return    : classifier weights [N, 1600]
         """
-        if adj is None:
-            N = prototypes.size(0)
-            adj = torch.eye(N, device=prototypes.device, dtype=prototypes.dtype)
-
-        adj_norm = normalize_adj(adj)
-        h = self.gnn1(prototypes, adj_norm)     # [N, hidden]
-        W = self.proj_W(h)                      # [N, out_dim]
-        if self.use_bias:
-            b = self.proj_b(h).squeeze(-1)      # [N]
-        else:
-            b = None
-        return W, b
+        h = self.gnn1(prototypes, adj)      # [N, hidden]
+        h = self.gnn2(h, adj)               # [N, hidden]
+        W = self.proj(h)                    # [N, 1600]
+        # 코사인 분류기용 정규화
+        W = F.normalize(W, dim=-1)
+        return W

@@ -6,9 +6,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from meta_neural_network_architectures import VGGReLUNormNetwork
+from meta_neural_network_architectures import VGGReLUNormNetwork, ClassifierWeightGenerator
 from inner_loop_optimizers import LSLRGradientDescentLearningRule
-
+from utils.anyway_utils import compute_prototypes
 
 def set_torch_seed(seed):
     """
@@ -64,6 +64,13 @@ class MAMLFewShotClassifier(nn.Module):
         for name, param in self.named_parameters():
             if param.requires_grad:
                 print(name, param.shape, param.device, param.requires_grad)
+
+        self.gnn_hypernet = ClassifierWeightGenerator(
+            d_proto=1600,  # prototype dimension (backbone output)
+            hidden=256,  # GNN hidden size
+            out_dim=1600,  # classifier weight dim = feature dim
+            use_bias=True  # bias 생성 여부
+        )
 
 
         self.optimizer = optim.Adam(self.trainable_parameters(), lr=args.meta_learning_rate, amsgrad=False)
@@ -214,20 +221,29 @@ class MAMLFewShotClassifier(nn.Module):
 
             for num_step in range(num_steps):
 
-                support_loss, support_preds = self.net_forward(
+                classifier_W, classifier_b = self.generate_classifer(
                     x=x_support_set_task,
                     y=y_support_set_task,
                     weights=names_weights_copy,
                     backup_running_statistics=num_step == 0,
                     training=True,
                     num_step=num_step,
-                )
+                    ncs=ncs)
 
-
-                names_weights_copy = self.apply_inner_loop_update(loss=support_loss,
-                                                                  names_weights_copy=names_weights_copy,
-                                                                  use_second_order=use_second_order,
-                                                                  current_step_idx=num_step)
+                # support_loss, support_preds = self.net_forward(
+                #     x=x_support_set_task,
+                #     y=y_support_set_task,
+                #     weights=names_weights_copy,
+                #     backup_running_statistics=num_step == 0,
+                #     training=True,
+                #     num_step=num_step,
+                #     classifier_W=classifier_W,
+                #     classifier_b=classifier_b)
+                #
+                # names_weights_copy = self.apply_inner_loop_update(loss=support_loss,
+                #                                                   names_weights_copy=names_weights_copy,
+                #                                                   use_second_order=use_second_order,
+                #                                                   current_step_idx=num_step)
 
                 if use_multi_step_loss_optimization and training_phase and epoch < self.args.multi_step_loss_num_epochs:
                     target_loss, target_preds = self.net_forward(x=x_target_set_task,
@@ -240,7 +256,9 @@ class MAMLFewShotClassifier(nn.Module):
                     target_loss, target_preds = self.net_forward(x=x_target_set_task,
                                                                  y=y_target_set_task, weights=names_weights_copy,
                                                                  backup_running_statistics=False, training=True,
-                                                                 num_step=num_step)
+                                                                 num_step=num_step,
+                                                                 classifier_W=classifier_W,
+                                                                 classifier_b=classifier_b)
                     task_losses.append(target_loss)
 
             per_task_target_preds[task_id] = target_preds.detach().cpu().numpy()
@@ -262,7 +280,20 @@ class MAMLFewShotClassifier(nn.Module):
 
         return losses, per_task_target_preds
 
-    def net_forward(self, x, y, weights, backup_running_statistics, training, num_step):
+    def generate_classifer(self, x, y, weights, backup_running_statistics, training, num_step, ncs):
+
+        embeddings = self.classifier.forward(x=x, params=weights,
+                                             training=training,
+                                             backup_running_statistics=backup_running_statistics, num_step=num_step)
+
+        prototypes = compute_prototypes(embeddings, y, n_classes=ncs)
+
+        W, b = self.gnn_hypernet(prototypes, adj=None)
+
+        return W, b
+
+
+    def net_forward(self, x, y, weights, backup_running_statistics, training, num_step, classifier_W ,classifier_b):
         """
         A base model forward pass on some data points x. Using the parameters in the weights dictionary. Also requires
         boolean flags indicating whether to reset the running statistics at the end of the run (if at evaluation phase).
@@ -277,9 +308,15 @@ class MAMLFewShotClassifier(nn.Module):
         :param num_step: An integer indicating the number of the step in the inner loop.
         :return: the crossentropy losses with respect to the given y, the predictions of the base model.
         """
-        preds = self.classifier.forward(x=x, params=weights,
+
+        embeddings = self.classifier.forward(x=x, params=weights,
                                         training=training,
                                         backup_running_statistics=backup_running_statistics, num_step=num_step)
+
+
+        preds = embeddings @ classifier_W.T  # [B, N]
+        if classifier_b is not None:
+            preds = preds + classifier_b.unsqueeze(0)  # [B, N]
 
         loss = F.cross_entropy(input=preds, target=y)
 
@@ -327,13 +364,21 @@ class MAMLFewShotClassifier(nn.Module):
         Applies an outer loop update on the meta-parameters of the model.
         :param loss: The current crossentropy loss.
         """
+
+        # prev_weights = {}
+        # for name, param in self.gnn_hypernet.named_parameters():
+        #     prev_weights[name] = param.data.clone()
+
+
         self.optimizer.zero_grad()
         loss.backward()
-        if 'imagenet' in self.args.dataset_name:
-            for name, param in self.classifier.named_parameters():
-                if param.requires_grad:
-                    param.grad.data.clamp_(-10, 10)  # not sure if this is necessary, more experiments are needed
         self.optimizer.step()
+
+        # for name, param in self.gnn_hypernet.named_parameters():
+        #     if not torch.equal(prev_weights[name], param.data):
+        #         print(f"{name} 가중치가 업데이트되었습니다.")
+        #         prev_weights[name] = param.data.clone()
+
 
     def run_train_iter(self, data_batch, epoch):
         """

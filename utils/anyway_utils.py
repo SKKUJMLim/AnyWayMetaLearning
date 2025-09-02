@@ -3,6 +3,22 @@ import random
 import torch
 import torch.nn.functional as F
 
+
+def compute_prototypes(embeddings, targets, n_classes):
+    """
+    embeddings: Tensor [B, d]  - support set의 backbone feature
+    targets:    Tensor [B]     - support set label (numeric class 0..N-1)
+    n_classes:  int            - 현재 task의 클래스 수 (N)
+    """
+    d = embeddings.size(-1)
+    prototypes = torch.zeros(n_classes, d, device=embeddings.device)
+
+    for c in range(n_classes):
+        mask = targets == c
+        if mask.sum() > 0:
+            prototypes[c] = embeddings[mask].mean(0)
+    return prototypes  # shape: [N, d]
+
 def build_non_overlapping_assignments(O: int, N: int, rng: random.Random):
     idx = list(range(O))
     rng.shuffle(idx)
