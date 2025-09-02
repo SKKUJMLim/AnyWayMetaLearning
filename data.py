@@ -167,11 +167,11 @@ class FewShotLearningDatasetParallel(Dataset):
         self.observed_seed_set = None
 
         # train에서 any-way를 쓸지/무슨 후보를 쓸지
-        self.any_way_setting = getattr(args, 'any_way_setting', getattr(args, 'any_way', False))
-        self.any_way_n_choices = getattr(args, 'any_way_n_choices', [3, 5, 7, 9])
+        self.any_way_setting = args.any_way_setting
+        self.any_way_n_choices = args.any_way_n_choices
 
         self.num_classes_per_set_current = self.num_classes_per_set  # 이번 배치에서 사용할 N
-        self.samples_per_iter = getattr(args, 'samples_per_iter', 1)
+        self.samples_per_iter = args.samples_per_iter
         self.effective_batch_size = self.num_of_gpus * self.batch_size * self.samples_per_iter
 
     def _sample_any_way_N_for_index(self, set_name, idx):

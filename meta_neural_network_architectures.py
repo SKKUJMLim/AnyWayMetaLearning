@@ -1124,3 +1124,40 @@ class ResNet12(nn.Module):
         # self.layer_dict['conv0'].restore_backup_stats()
         for i in range(self.num_stages):
             self.layer_dict['layer{}'.format(i)].restore_backup_stats()
+
+
+class SimpleGNNLayer(nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.linear = nn.Linear(in_dim, out_dim)
+
+    def forward(self, x, adj):
+        """
+        x   : [N, d_in]  노드 feature 행렬
+        adj : [N, N] adjacency matrix (self-loop 포함)
+        """
+        agg = torch.matmul(adj, x)          # 이웃 feature 합산 [N, d_in]
+        out = self.linear(agg)              # [N, d_out]
+        return F.relu(out)
+
+class ClassifierWeightGenerator(nn.Module):
+    def __init__(self, d_proto=512, hidden=256, out_dim=1600):
+        super().__init__()
+        # 2-layer GNN
+        self.gnn1 = SimpleGNNLayer(d_proto, hidden)
+        self.gnn2 = SimpleGNNLayer(hidden, hidden)
+        # 마지막 projection: [hidden] -> [1600]
+        self.proj = nn.Linear(hidden, out_dim)
+
+    def forward(self, prototypes, adj):
+        """
+        prototypes: [N, d_proto]
+        adj       : [N, N] adjacency matrix
+        return    : classifier weights [N, 1600]
+        """
+        h = self.gnn1(prototypes, adj)      # [N, hidden]
+        h = self.gnn2(h, adj)               # [N, hidden]
+        W = self.proj(h)                    # [N, 1600]
+        # 코사인 분류기용 정규화
+        W = F.normalize(W, dim=-1)
+        return W

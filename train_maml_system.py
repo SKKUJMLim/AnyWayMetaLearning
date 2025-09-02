@@ -1,13 +1,14 @@
 from data import MetaLearningSystemDataLoader
 from experiment_builder import ExperimentBuilder
 from few_shot_learning_system import MAMLFewShotClassifier
+# from few_shot_learning_system_aMAML import MAMLFewShotClassifier
 from utils.parser_utils import get_args
 from utils.dataset_tools import maybe_unzip_dataset
 from multiprocessing import freeze_support
 
 if __name__ == '__main__':
 
-    # python train_maml_system.py --name_of_args_json_file experiment_config/Any_Way_MAML_miniImagenet.json --gpu_to_use 0
+    # python train_maml_system.py --name_of_args_json_file experiment_config/a-maml_miniImagenet.json --gpu_to_use 0
 
     freeze_support()
 

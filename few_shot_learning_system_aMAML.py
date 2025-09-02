@@ -295,7 +295,7 @@ class MAMLFewShotClassifier(nn.Module):
         )  # (B, O)
 
         # 2) Any-Way OFF이면 기존 경로
-        if not getattr(self.args, "any_way_setting", False):
+        if not self.args.any_way_setting:
             loss = F.cross_entropy(preds_O, y)
             return loss, preds_O
 
