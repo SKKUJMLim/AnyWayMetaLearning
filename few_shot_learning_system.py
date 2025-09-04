@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from meta_neural_network_architectures import VGGReLUNormNetwork, ClassifierWeightGenerator
+from meta_neural_network_architectures import VGGReLUNormNetwork, HyperNetworkLinear
 from inner_loop_optimizers import LSLRGradientDescentLearningRule
 from utils.anyway_utils import compute_prototypes
 
@@ -65,12 +65,10 @@ class MAMLFewShotClassifier(nn.Module):
             if param.requires_grad:
                 print(name, param.shape, param.device, param.requires_grad)
 
-        self.gnn_hypernet = ClassifierWeightGenerator(
-            d_proto=1600,  # prototype dimension (backbone output)
-            hidden=256,  # GNN hidden size
-            out_dim=1600,  # classifier weight dim = feature dim
-            use_bias=True  # bias 생성 여부
-        )
+        self.hypernet = HyperNetworkLinear(input_dim=self.args.num_class_embedding_params,
+                                           output_dim=self.args.num_class_embedding_params,
+                                           args=self.args,
+                                           device=self.device)
 
 
         self.optimizer = optim.Adam(self.trainable_parameters(), lr=args.meta_learning_rate, amsgrad=False)
@@ -219,27 +217,27 @@ class MAMLFewShotClassifier(nn.Module):
             x_target_set_task = x_target_set_task.view(-1, c, h, w)
             y_target_set_task = y_target_set_task.view(-1)
 
+            z = nn.Parameter(torch.randn([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
+
             for num_step in range(num_steps):
 
-                classifier_W, classifier_b = self.generate_classifer(
+                classifier_W, classifier_b = self.hypernet(z)
+
+                support_loss, support_preds = self.net_forward(
                     x=x_support_set_task,
                     y=y_support_set_task,
                     weights=names_weights_copy,
                     backup_running_statistics=num_step == 0,
                     training=True,
                     num_step=num_step,
-                    ncs=ncs)
+                    classifier_W=classifier_W,
+                    classifier_b=classifier_b)
 
-                # support_loss, support_preds = self.net_forward(
-                #     x=x_support_set_task,
-                #     y=y_support_set_task,
-                #     weights=names_weights_copy,
-                #     backup_running_statistics=num_step == 0,
-                #     training=True,
-                #     num_step=num_step,
-                #     classifier_W=classifier_W,
-                #     classifier_b=classifier_b)
-                #
+                gradients = torch.autograd.grad(support_loss, (*names_weights_copy.values(), z),
+                                                create_graph=use_second_order, retain_graph=True)
+                grads, context_grads = gradients[:-1], gradients[-1]
+                z = z - self.args.class_embedding_learning_rate * context_grads
+
                 # names_weights_copy = self.apply_inner_loop_update(loss=support_loss,
                 #                                                   names_weights_copy=names_weights_copy,
                 #                                                   use_second_order=use_second_order,
@@ -253,6 +251,9 @@ class MAMLFewShotClassifier(nn.Module):
 
                     task_losses.append(per_step_loss_importance_vectors[num_step] * target_loss)
                 elif num_step == (self.args.number_of_training_steps_per_iter - 1):
+
+                    classifier_W, classifier_b = self.hypernet(z)
+
                     target_loss, target_preds = self.net_forward(x=x_target_set_task,
                                                                  y=y_target_set_task, weights=names_weights_copy,
                                                                  backup_running_statistics=False, training=True,

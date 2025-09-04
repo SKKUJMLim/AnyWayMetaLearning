@@ -9,7 +9,7 @@
   "dataset_name":"mini_imagenet_full_size",
   "dataset_path":"mini_imagenet_full_size",
   "reset_stored_paths":false,
-  "experiment_name":"GNNAnyWay_miniImagenet",
+  "experiment_name":"HyperAnyWay_miniImagenet",
   "train_seed": 0, "val_seed": 0,
   "indexes_of_folders_indicating_class": [-3, -2],
   "sets_are_pre_split": true,
@@ -54,5 +54,7 @@
   "second_order": true,
   "use_multi_step_loss_optimization":false,
   "any_way_setting": true,
-  "any_way_n_choices": [3,5,7,9]
+  "any_way_n_choices": [3,5,7,9],
+  "num_class_embedding_params": 1600,
+  "class_embedding_learning_rate" : 0.01
 }

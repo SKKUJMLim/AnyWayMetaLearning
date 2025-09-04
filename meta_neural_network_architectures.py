@@ -1129,6 +1129,36 @@ class ResNet12(nn.Module):
             self.layer_dict['layer{}'.format(i)].restore_backup_stats()
 
 
+class HyperNetworkLinear(nn.Module):
+    def __init__(self, input_dim, output_dim, args, device):
+        super().__init__()
+        self.device = device
+        self.args = args
+
+        # 공통 trunk
+        self.linear1 = nn.Linear(input_dim, input_dim)
+        self.activation1 = nn.ReLU(inplace=True)
+
+        # weight와 bias를 따로 예측
+        self.linear_w = nn.Linear(input_dim, output_dim)  # W
+        self.linear_b = nn.Linear(input_dim, 1)           # b
+
+    def forward(self, task_state):
+        """
+        task_state: [N, input_dim]  (예: class prototypes)
+        return:
+            W: [N, output_dim]  (classifier weights)
+            b: [N]              (classifier biases)
+        """
+        out = self.linear1(task_state)
+        out = self.activation1(out)
+
+        W = self.linear_w(out)              # [N, output_dim]
+        b = self.linear_b(out).squeeze(-1) # [N]
+        return W, b
+
+
+
 def normalize_adj(adj: torch.Tensor):
     """
     adj: [N, N] (0/1 혹은 가중 인접행렬), self-loop 미포함 가능
