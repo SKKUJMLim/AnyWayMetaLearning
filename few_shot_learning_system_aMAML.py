@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from meta_neural_network_architectures_aMAML import VGGReLUNormNetwork
-from inner_loop_optimizers_aMAML import LSLRGradientDescentLearningRule
+from inner_loop_optimizers_aMAML import LSLRGradientDescentLearningRule, GradientDescentLearningRule
 from utils.anyway_utils import build_non_overlapping_assignments, anyway_loss, anyway_ensemble_logits
 import random
 
@@ -50,12 +50,18 @@ class MAMLFewShotClassifier(nn.Module):
 
         self.task_learning_rate = args.task_learning_rate
 
-        self.inner_loop_optimizer = LSLRGradientDescentLearningRule(device=device,
-                                                                    init_learning_rate=self.task_learning_rate,
-                                                                    total_num_inner_loop_steps=self.args.number_of_training_steps_per_iter,
-                                                                    use_learnable_learning_rates=self.args.learnable_per_layer_per_step_inner_loop_learning_rate)
-        self.inner_loop_optimizer.initialise(
-            names_weights_dict=self.get_inner_loop_parameter_dict(params=self.classifier.named_parameters()))
+        if self.args.learnable_per_layer_per_step_inner_loop_learning_rate:
+
+            self.inner_loop_optimizer = LSLRGradientDescentLearningRule(device=device,
+                                                                        init_learning_rate=self.task_learning_rate,
+                                                                        total_num_inner_loop_steps=self.args.number_of_training_steps_per_iter,
+                                                                        use_learnable_learning_rates=self.args.learnable_per_layer_per_step_inner_loop_learning_rate)
+            self.inner_loop_optimizer.initialise(
+                names_weights_dict=self.get_inner_loop_parameter_dict(params=self.classifier.named_parameters()))
+
+        else:
+            self.inner_loop_optimizer = GradientDescentLearningRule(device=device, args=self.args,
+                                                                    learning_rate=self.task_learning_rate)
 
         print("Inner Loop parameters")
         for key, value in self.inner_loop_optimizer.named_parameters():
