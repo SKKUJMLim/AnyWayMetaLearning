@@ -250,15 +250,13 @@ class MAMLFewShotClassifier(nn.Module):
                     classifier_W=classifier_W)
 
                 (classifier_W_grads,) = torch.autograd.grad(support_loss, (classifier_W,),
-                                                create_graph=use_second_order, retain_graph=True)
-
-
+                                                create_graph=use_second_order)
                 classifier_W = classifier_W - self.args.init_inner_loop_learning_rate * classifier_W_grads
 
-                names_weights_copy = self.apply_inner_loop_update(loss=support_loss,
-                                                                  names_weights_copy=names_weights_copy,
-                                                                  use_second_order=use_second_order,
-                                                                  current_step_idx=num_step)
+                # names_weights_copy = self.apply_inner_loop_update(loss=support_loss,
+                #                                                   names_weights_copy=names_weights_copy,
+                #                                                   use_second_order=use_second_order,
+                #                                                   current_step_idx=num_step)
 
                 if use_multi_step_loss_optimization and training_phase and epoch < self.args.multi_step_loss_num_epochs:
                     target_loss, target_preds = self.net_forward(x=x_target_set_task,
@@ -302,7 +300,7 @@ class MAMLFewShotClassifier(nn.Module):
 
         embeddings = embeddings.detach().clone()
 
-        prototypes = compute_prototypes(embeddings, y, n_classes=ncs)
+        prototypes = compute_prototypes(embeddings, y, n_classes=ncs, normalize=True)
 
         W = self.hypernet(prototypes)
 

@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 
 
-def compute_prototypes(embeddings, targets, n_classes):
+def compute_prototypes(embeddings, targets, n_classes, normalize):
     """
     embeddings: Tensor [B, d]  - support set의 backbone feature
     targets:    Tensor [B]     - support set label (numeric class 0..N-1)
@@ -17,6 +17,10 @@ def compute_prototypes(embeddings, targets, n_classes):
         mask = targets == c
         if mask.sum() > 0:
             prototypes[c] = embeddings[mask].mean(0)
+
+    if normalize:
+        prototypes = torch.nn.functional.normalize(prototypes, p=2, dim=1)
+
     return prototypes  # shape: [N, d]
 
 def build_non_overlapping_assignments(O: int, N: int, rng: random.Random):
