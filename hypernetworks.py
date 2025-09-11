@@ -99,12 +99,12 @@ class SimpleGNNLayer(nn.Module):
         return F.relu(out, inplace=True)
 
 
-class ClassifierWeightGenerator(nn.Module):
+class GNNWeightGenerator(nn.Module):
     """
     Linear classifier용 가중치/바이어스 생성기 (Any-Way 대응)
     prototypes -> GNN -> [W, b]
     """
-    def __init__(self, d_proto=512, hidden=256, out_dim=1600, use_bias=True, dropout_p=0.0):
+    def __init__(self, d_proto=1600, hidden=256, out_dim=1600, use_bias=True, dropout_p=0.0):
         super().__init__()
         self.gnn1 = SimpleGNNLayer(d_proto, hidden)
         self.gnn2 = SimpleGNNLayer(hidden, hidden)

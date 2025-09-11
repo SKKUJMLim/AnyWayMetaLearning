@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from meta_neural_network_architectures import VGGReLUNormNetwork
-from hypernetworks import HyperNetworkLinear, HyperNetworkAutoencoder
+from hypernetworks import HyperNetworkLinear, HyperNetworkAutoencoder, GNNWeightGenerator
 from inner_loop_optimizers import LSLRGradientDescentLearningRule, GradientDescentLearningRule
 from utils.anyway_utils import compute_prototypes
 
@@ -81,6 +81,8 @@ class MAMLFewShotClassifier(nn.Module):
         self.hypernet = HyperNetworkAutoencoder(input_dim=self.args.num_class_embedding_params,
                                     output_dim=self.args.num_class_embedding_params,
                                     latent_dim=10)
+
+        # self.hypernet = GNNWeightGenerator(d_proto=1600, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
 
 
         self.optimizer = optim.Adam(self.trainable_parameters(), lr=args.meta_learning_rate, amsgrad=False)
@@ -300,9 +302,11 @@ class MAMLFewShotClassifier(nn.Module):
 
         embeddings = embeddings.detach().clone()
 
-        prototypes = compute_prototypes(embeddings, y, n_classes=ncs, normalize=True)
+        prototypes = compute_prototypes(embeddings, y, n_classes=ncs, normalize=False)
 
         W = self.hypernet(prototypes)
+
+        # W, b = self.hypernet(prototypes, None)
 
         return W
 
