@@ -15,9 +15,7 @@ class HyperNetworkLinear(nn.Module):
         self.linear1 = nn.Linear(input_dim, hidden_dim)
         self.activation1 = nn.ReLU(inplace=True)
 
-        # weight와 bias를 따로 예측
-        self.linear_w = nn.Linear(hidden_dim, output_dim)  # W
-        # self.linear_b = nn.Linear(hidden_dim, 1)           # b
+        self.linear_2 = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, task_state):
         """
@@ -30,10 +28,9 @@ class HyperNetworkLinear(nn.Module):
         out = self.linear1(task_state)
         out = self.activation1(out)
 
-        W = self.linear_w(out)              # [N, output_dim]
-        # b = self.linear_b(out).squeeze(-1) # [N]
+        W = self.linear_2(out)
 
-        return W # , b
+        return W
 
 
 
