@@ -67,10 +67,6 @@ class MAMLFewShotClassifier(nn.Module):
         self.device = device
         self.args = args
         self.to(device)
-        print("Outer Loop parameters")
-        for name, param in self.named_parameters():
-            if param.requires_grad:
-                print(name, param.shape, param.device, param.requires_grad)
 
         if 'AutoEncoder' in self.args.experiment_name:
             self.hypernet = HyperNetworkAutoencoder(input_dim=self.args.num_class_embedding_params,
@@ -85,6 +81,11 @@ class MAMLFewShotClassifier(nn.Module):
         elif 'GNN' in self.args.experiment_name:
             self.hypernet = GNNWeightGenerator(d_proto=1600, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
 
+
+        print("Outer Loop parameters")
+        for name, param in self.named_parameters():
+            if param.requires_grad:
+                print(name, param.shape, param.device, param.requires_grad)
 
         self.optimizer = optim.Adam(self.trainable_parameters(), lr=args.meta_learning_rate, amsgrad=False)
         self.scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=self.optimizer, T_max=self.args.total_epochs,
