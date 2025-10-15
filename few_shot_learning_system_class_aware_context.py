@@ -72,17 +72,21 @@ class MAMLFewShotClassifier(nn.Module):
             if param.requires_grad:
                 print(name, param.shape, param.device, param.requires_grad)
 
-        self.hypernet = HyperNetworkLinear(input_dim=self.args.num_class_embedding_params,
-                                           hidden_dim=self.args.num_class_embedding_params,
-                                           output_dim=1600,
-                                           args=self.args,
-                                           device=self.device)
 
-        # self.hypernet = HyperNetworkAutoencoder(input_dim=self.args.num_class_embedding_params,
-        #                             output_dim=self.args.num_class_embedding_params,
-        #                             latent_dim=10)
-
-        # self.hypernet = GNNWeightGenerator(d_proto=1600, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
+        if 'AutoEncoder' in self.args.experiment_name:
+            self.hypernet = HyperNetworkAutoencoder(input_dim=self.args.num_class_embedding_params,
+                                                    output_dim=self.args.num_class_embedding_params,
+                                                    latent_dim=64)
+        elif 'CondtionalAE' in self.args.experiment_name:
+            pass
+        elif 'Generator' in self.args.experiment_name:
+            self.hypernet = HyperNetworkLinear(input_dim=self.args.num_class_embedding_params,
+                                               hidden_dim=self.args.num_class_embedding_params,
+                                               output_dim=1600,
+                                               args=self.args,
+                                               device=self.device)
+        elif 'GNN' in self.args.experiment_name:
+            self.hypernet = GNNWeightGenerator(d_proto=1600, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
 
 
         self.optimizer = optim.Adam(self.trainable_parameters(), lr=args.meta_learning_rate, amsgrad=False)
