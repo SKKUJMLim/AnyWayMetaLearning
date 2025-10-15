@@ -77,8 +77,6 @@ class MAMLFewShotClassifier(nn.Module):
             self.hypernet = HyperNetworkAutoencoder(input_dim=self.args.num_class_embedding_params,
                                                     output_dim=self.args.num_class_embedding_params,
                                                     latent_dim=64)
-        elif 'CondtionalAE' in self.args.experiment_name:
-            pass
         elif 'Generator' in self.args.experiment_name:
             self.hypernet = HyperNetworkLinear(input_dim=self.args.num_class_embedding_params,
                                                hidden_dim=self.args.num_class_embedding_params,
@@ -236,8 +234,15 @@ class MAMLFewShotClassifier(nn.Module):
             y_target_set_task = y_target_set_task.view(-1)
 
             # z를 class prototype으로 초기화하는 것을 고민해보자
-            # P_adaptive = compute_prototypes(initial_embeddings, y_support_set_task, n_classes=ncs, normalize=False)
-            z = nn.Parameter(torch.zeros([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
+
+            initial_embeddings = self.classifier.forward(x=x_support_set_task,
+                                                         params=names_weights_copy,
+                                                         training=True,
+                                                         backup_running_statistics=True, num_step=0)
+
+            z = compute_prototypes(initial_embeddings, y_support_set_task, n_classes=ncs, normalize=False)
+            z = z.clone().requires_grad_(True)  # z를 적응 파라미터로 설정
+            # z = nn.Parameter(torch.zeros([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
 
             for num_step in range(num_steps):
 

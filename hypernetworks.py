@@ -35,23 +35,19 @@ class HyperNetworkLinear(nn.Module):
 
 
 class HyperNetworkAutoencoder(nn.Module):
-    def __init__(self, input_dim, output_dim, latent_dim=10):
+    def __init__(self, input_dim, output_dim, latent_dim=64):
         super(HyperNetworkAutoencoder, self).__init__()
 
-        # Encoder: Reduce input to latent space of size latent_dim
+        # Encoder
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, 512),
             nn.ReLU(),
-            nn.Linear(512, 256),
-            nn.ReLU(),
-            nn.Linear(256, latent_dim),
+            nn.Linear(512, latent_dim)
         )
 
-        # Decoder: Map latent space back to image dimensions (3, 84, 84)
+        # Decoder
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 512),
+            nn.Linear(latent_dim, 512),
             nn.ReLU(),
             nn.Linear(512, output_dim)
         )
