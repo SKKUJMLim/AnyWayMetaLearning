@@ -62,74 +62,95 @@ class HyperNetworkAutoencoder(nn.Module):
         return x
 
 
-
 def normalize_adj(adj: torch.Tensor):
     """
-    adj: [N, N] (0/1 혹은 가중 인접행렬), self-loop 미포함 가능
-    return: \hat{A} = D^{-1/2} (A + I) D^{-1/2}
+    인접 행렬을 정규화합니다. GCN 공식: \hat{A} = D^{-1/2} (A + I) D^{-1/2}
+    adj: [N, N] (0/1 혹은 가중 인접 행렬)
+    return: 정규화된 인접 행렬
     """
     N = adj.size(0)
     A = adj
-    A = A + torch.eye(N, device=adj.device, dtype=adj.dtype)  # add self-loop
-    deg = A.sum(-1)                                           # [N]
+
+    # 1. Self-loop 추가 (A + I)
+    A = A + torch.eye(N, device=adj.device, dtype=adj.dtype)
+
+    # 2. Degree 계산
+    deg = A.sum(-1)
+
+    # 3. D^{-1/2} 계산
     deg_inv_sqrt = torch.pow(deg.clamp(min=1.0), -0.5)
-    D_inv_sqrt = torch.diag(deg_inv_sqrt)
-    return D_inv_sqrt @ A @ D_inv_sqrt
+
+    # D^{-1/2} A D^{-1/2}
+    adj_norm = deg_inv_sqrt.unsqueeze(-1) * A * deg_inv_sqrt.unsqueeze(-2)
+
+    return adj_norm
 
 
 class SimpleGNNLayer(nn.Module):
+    """
+    간단한 GNN 레이어 (GCN의 기본 연산 구조를 따름)
+    """
+
     def __init__(self, in_dim, out_dim):
         super().__init__()
         self.linear = nn.Linear(in_dim, out_dim)
 
     def forward(self, x, adj_norm):
         """
-        x        : [N, d_in]  노드 feature
-        adj_norm : [N, N] 정규화된 adjacency (D^{-1/2} (A+I) D^{-1/2})
+        x        : [N, d_in]  (노드 feature)
+        adj_norm : [N, N]     (정규화된 adjacency)
         """
-        agg = adj_norm @ x            # [N, d_in]
-        out = self.linear(agg)        # [N, d_out]
+        # 1. 메시지 집계 (Aggregation): \hat{A} x
+        agg = torch.matmul(adj_norm, x)
+
+        # 2. 선형 변환 및 활성화: W (\hat{A} x)
+        out = self.linear(agg)
         return F.relu(out, inplace=True)
 
 
 class GNNWeightGenerator(nn.Module):
     """
-    Linear classifier용 가중치/바이어스 생성기 (Any-Way 대응)
-    prototypes -> GNN -> [W, b]
+    GNN 기반 분류기 가중치/바이어스 생성기 (바이어스 제외).
+    프로토타입과 클래스 관계 정보를 활용하여 Any-Way 분류기 W를 생성.
     """
-    def __init__(self, d_proto=1600, hidden=256, out_dim=1600, use_bias=True, dropout_p=0.0):
+
+    # use_bias는 False를 가정하거나, 파라미터에서 제외합니다.
+    def __init__(self, d_proto=1600, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.0):
         super().__init__()
         self.gnn1 = SimpleGNNLayer(d_proto, hidden)
         self.gnn2 = SimpleGNNLayer(hidden, hidden)
         self.dropout = nn.Dropout(dropout_p) if dropout_p > 0 else nn.Identity()
-        self.proj_W = nn.Linear(hidden, out_dim)   # 클래스별 weight (d_out = feat_dim)
-        self.use_bias = use_bias
-        if use_bias:
-            self.proj_b = nn.Linear(hidden, 1)     # 클래스별 bias
+        self.proj_W = nn.Linear(hidden, out_dim)  # 클래스별 weight (d_out = feat_dim)
 
-        # 초기화: linear head 안정화
-        for m in [self.proj_W] + ([self.proj_b] if use_bias else []):
+        # self.use_bias = False를 가정하므로, self.proj_b 정의를 제외합니다.
+        self.use_bias = False
+
+        # 안정적인 학습을 위한 초기화 (proj_b 제외)
+        for m in [self.proj_W]:  # use_bias 로직 제거
             nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))
-            if m.bias is not None:
-                fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
-                bound = 1 / math.sqrt(fan_in)
-                nn.init.uniform_(m.bias, -bound, bound)
+            # GNNLayer 내부의 Linear 계층 초기화는 SimpleGNNLayer에서 처리됩니다.
 
     def forward(self, prototypes, adj):
         """
-        prototypes: [N, d_proto]  (support로부터 추출한 클래스 프로토타입)
-        adj       : [N, N]        (클래스 간 그래프; 없으면 I 사용 가능)
-        return    : W [N, out_dim], b [N] (linear classifier용)
+        prototypes: [N, d_proto]  (z - 적응형 클래스 문맥 벡터)
+        adj       : [N, N]        (클래스 간 관계를 나타내는 인접 행렬)
+        return    : W [N, out_dim], b=None
         """
+        # Adj가 제공되지 않았거나, GNNWeightGenerator를 일반 Hypernet처럼 사용할 경우 I를 Adj로 사용
         if adj is None:
             N = prototypes.size(0)
             adj = torch.eye(N, device=prototypes.device, dtype=prototypes.dtype)
 
+        # 1. 정규화된 인접 행렬 계산
         adj_norm = normalize_adj(adj)
-        h = self.gnn1(prototypes, adj_norm)     # [N, hidden]
-        W = self.proj_W(h)                      # [N, out_dim]
-        if self.use_bias:
-            b = self.proj_b(h).squeeze(-1)      # [N]
-        else:
-            b = None
-        return W, b
+
+        # 2. GNN 순전파
+        h = self.gnn1(prototypes, adj_norm)  # [N, hidden]
+        h = self.dropout(h)
+        h = self.gnn2(h, adj_norm)  # [N, hidden]
+        h = self.dropout(h)
+
+        # 3. 최종 W 생성
+        W = self.proj_W(h)  # [N, out_dim]
+
+        return W

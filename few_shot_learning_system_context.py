@@ -79,7 +79,7 @@ class MAMLFewShotClassifier(nn.Module):
                                                args=self.args,
                                                device=self.device)
         elif 'GNN' in self.args.experiment_name:
-            self.hypernet = GNNWeightGenerator(d_proto=1600, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
+            self.hypernet = GNNWeightGenerator(d_proto=self.args.num_class_embedding_params, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
 
 
         print("Outer Loop parameters")
@@ -233,10 +233,25 @@ class MAMLFewShotClassifier(nn.Module):
             x_target_set_task = x_target_set_task.view(-1, c, h, w)
             y_target_set_task = y_target_set_task.view(-1)
 
-            z = nn.Parameter(torch.zeros([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
-            # z = nn.Parameter(torch.randn([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
+            # z를 class prototype으로 초기화하는 것을 고민해보자
+            # initial_embeddings = self.classifier.forward(x=x_support_set_task,
+            #                                              params=names_weights_copy,
+            #                                              training=True,
+            #                                              backup_running_statistics=True, num_step=0)
+            #
+            # z = compute_prototypes(initial_embeddings, y_support_set_task, n_classes=ncs, normalize=False)
+            # z = z.clone().requires_grad_(True)  # z를 적응 파라미터로 설정
+
+            # z = nn.Parameter(torch.zeros([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
+            z = nn.Parameter(torch.randn([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
 
             for num_step in range(num_steps):
+
+                # # 1. 코사인 유사도 계산 (클래스 N x 클래스 N)
+                # z_norm = F.normalize(z, p=2, dim=1)
+                # adj = torch.matmul(z_norm, z_norm.transpose(0, 1))
+                # # 2. 자기 자신 엣지는 제외하고, 관계 정보를 담은 가중치 행렬로 사용
+                # adj = adj - torch.eye(ncs, device=adj.device)
 
                 classifier_W = self.hypernet(z)
 
@@ -253,11 +268,6 @@ class MAMLFewShotClassifier(nn.Module):
                                                 create_graph=use_second_order, retain_graph=True)
                 grads, context_grads = gradients[:-1], gradients[-1]
                 z = z - self.args.class_embedding_learning_rate * context_grads
-
-                # names_weights_copy = self.apply_inner_loop_update(loss=support_loss,
-                #                                                   names_weights_copy=names_weights_copy,
-                #                                                   use_second_order=use_second_order,
-                #                                                   current_step_idx=num_step)
 
                 if use_multi_step_loss_optimization and training_phase and epoch < self.args.multi_step_loss_num_epochs:
                     target_loss, target_preds = self.net_forward(x=x_target_set_task,
@@ -295,23 +305,6 @@ class MAMLFewShotClassifier(nn.Module):
             losses['loss_importance_vector_{}'.format(idx)] = item.detach().cpu().numpy()
 
         return losses, per_task_target_preds
-
-    # def generate_classifer(self, x, y, weights, backup_running_statistics, training, num_step, ncs):
-    #
-    #     embeddings = self.classifier.forward(x=x, params=weights,
-    #                                          training=training,
-    #                                          backup_running_statistics=backup_running_statistics, num_step=num_step)
-    #
-    #     embeddings = embeddings.detach().clone()
-    #
-    #     prototypes = compute_prototypes(embeddings, y, n_classes=ncs, normalize=False)
-    #
-    #     W = self.hypernet(prototypes)
-    #
-    #     # W, b = self.hypernet(prototypes, None)
-    #
-    #     return W
-
 
     def net_forward(self, x, y, weights, backup_running_statistics, training, num_step, classifier_W):
         """

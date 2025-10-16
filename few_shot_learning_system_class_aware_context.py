@@ -234,7 +234,6 @@ class MAMLFewShotClassifier(nn.Module):
             y_target_set_task = y_target_set_task.view(-1)
 
             # z를 class prototype으로 초기화하는 것을 고민해보자
-
             initial_embeddings = self.classifier.forward(x=x_support_set_task,
                                                          params=names_weights_copy,
                                                          training=True,
