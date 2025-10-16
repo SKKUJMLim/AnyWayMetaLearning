@@ -234,14 +234,15 @@ class MAMLFewShotClassifier(nn.Module):
             y_target_set_task = y_target_set_task.view(-1)
 
             # z를 class prototype으로 초기화하는 것을 고민해보자
-            initial_embeddings = self.classifier.forward(x=x_support_set_task,
-                                                         params=names_weights_copy,
-                                                         training=True,
-                                                         backup_running_statistics=True, num_step=0)
+            # initial_embeddings = self.classifier.forward(x=x_support_set_task,
+            #                                              params=names_weights_copy,
+            #                                              training=True,
+            #                                              backup_running_statistics=True, num_step=0)
+            #
+            # z = compute_prototypes(initial_embeddings, y_support_set_task, n_classes=ncs, normalize=False)
+            # z = z.clone().requires_grad_(True)  # z를 적응 파라미터로 설정
 
-            z = compute_prototypes(initial_embeddings, y_support_set_task, n_classes=ncs, normalize=False)
-            z = z.clone().requires_grad_(True)  # z를 적응 파라미터로 설정
-            # z = nn.Parameter(torch.zeros([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
+            z = nn.Parameter(torch.randn([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
 
             for num_step in range(num_steps):
 
