@@ -265,7 +265,6 @@ class MAMLFewShotClassifier(nn.Module):
                 # **. z 업데이트 (클래스별)**
                 current_z = z.clone()
                 updated_z = z.clone()
-
                 unique_classes = torch.unique(y_support_set_task)
 
                 for class_id_tensor in unique_classes:

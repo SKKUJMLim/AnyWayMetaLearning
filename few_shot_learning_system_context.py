@@ -258,9 +258,16 @@ class MAMLFewShotClassifier(nn.Module):
                     num_step=num_step,
                     classifier_W=classifier_W)
 
+                # z와 w 파라미터 모두에 대해 미분하여 경사 흐름을 확보합니다.
+                # all_params_for_grad = [z] + list(names_weights_copy.values())
+                # gradients = torch.autograd.grad(support_loss, all_params_for_grad, create_graph=use_second_order)
+                # z_grads = gradients[0]
+                # z = z - self.args.class_embedding_learning_rate * z_grads
+
                 gradients = torch.autograd.grad(support_loss, (*names_weights_copy.values(), z),
-                                                create_graph=use_second_order, retain_graph=True)
+                                                create_graph=use_second_order)
                 grads, context_grads = gradients[:-1], gradients[-1]
+
                 z = z - self.args.class_embedding_learning_rate * context_grads
 
                 if use_multi_step_loss_optimization and training_phase and epoch < self.args.multi_step_loss_num_epochs:
