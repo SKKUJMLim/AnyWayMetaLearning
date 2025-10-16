@@ -74,7 +74,7 @@ class MAMLFewShotClassifier(nn.Module):
                                                     latent_dim=64)
         elif 'Generator' in self.args.experiment_name:
             self.hypernet = HyperNetworkLinear(input_dim=self.args.num_class_embedding_params,
-                                               hidden_dim=self.args.num_class_embedding_params,
+                                               hidden_dim=512,
                                                output_dim=1600,
                                                args=self.args,
                                                device=self.device)
@@ -234,6 +234,7 @@ class MAMLFewShotClassifier(nn.Module):
             y_target_set_task = y_target_set_task.view(-1)
 
             z = nn.Parameter(torch.zeros([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
+            # z = nn.Parameter(torch.randn([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
 
             for num_step in range(num_steps):
 

@@ -55,6 +55,6 @@
   "use_multi_step_loss_optimization":false,
   "any_way_setting": true,
   "any_way_n_choices": [3,5,7,9],
-  "num_class_embedding_params": 100,
+  "num_class_embedding_params": 200,
   "class_embedding_learning_rate" : 0.01
 }
