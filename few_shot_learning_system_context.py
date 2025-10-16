@@ -265,7 +265,7 @@ class MAMLFewShotClassifier(nn.Module):
                 # z = z - self.args.class_embedding_learning_rate * z_grads
 
                 gradients = torch.autograd.grad(support_loss, (*names_weights_copy.values(), z),
-                                                create_graph=use_second_order)
+                                                create_graph=use_second_order) # , retain_graph=True
                 grads, context_grads = gradients[:-1], gradients[-1]
 
                 z = z - self.args.class_embedding_learning_rate * context_grads
