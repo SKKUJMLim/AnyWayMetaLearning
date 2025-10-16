@@ -247,12 +247,6 @@ class MAMLFewShotClassifier(nn.Module):
 
             for num_step in range(num_steps):
 
-                # # 1. 코사인 유사도 계산 (클래스 N x 클래스 N)
-                # z_norm = F.normalize(z, p=2, dim=1)
-                # adj = torch.matmul(z_norm, z_norm.transpose(0, 1))
-                # # 2. 자기 자신 엣지는 제외하고, 관계 정보를 담은 가중치 행렬로 사용
-                # adj = adj - torch.eye(ncs, device=adj.device)
-
                 classifier_W = self.hypernet(z)
 
                 support_loss, support_preds = self.net_forward(
