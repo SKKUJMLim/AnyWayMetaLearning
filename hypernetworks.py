@@ -12,10 +12,13 @@ class HyperNetworkLinear(nn.Module):
         self.args = args
 
         # 공통 trunk
-        self.linear1 = nn.Linear(input_dim, hidden_dim)
+        self.linear1 = nn.Linear(input_dim, 256)
         self.activation1 = nn.ReLU(inplace=True)
 
-        self.linear_2 = nn.Linear(hidden_dim, output_dim)
+        self.linear2 = nn.Linear(256, 512)
+        self.activation2 = nn.ReLU(inplace=True)
+
+        self.linear_3 = nn.Linear(512, output_dim)
 
     def forward(self, task_state):
         """
@@ -28,7 +31,10 @@ class HyperNetworkLinear(nn.Module):
         out = self.linear1(task_state)
         out = self.activation1(out)
 
-        W = self.linear_2(out)
+        out = self.linear2(out)
+        out = self.activation2(out)
+
+        W = self.linear_3(out)
 
         return W
 

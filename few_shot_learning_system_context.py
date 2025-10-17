@@ -233,15 +233,6 @@ class MAMLFewShotClassifier(nn.Module):
             x_target_set_task = x_target_set_task.view(-1, c, h, w)
             y_target_set_task = y_target_set_task.view(-1)
 
-            # z를 class prototype으로 초기화하는 것을 고민해보자
-            # initial_embeddings = self.classifier.forward(x=x_support_set_task,
-            #                                              params=names_weights_copy,
-            #                                              training=True,
-            #                                              backup_running_statistics=True, num_step=0)
-            #
-            # z = compute_prototypes(initial_embeddings, y_support_set_task, n_classes=ncs, normalize=False)
-            # z = z.clone().requires_grad_(True)  # z를 적응 파라미터로 설정
-
             z = nn.Parameter(torch.zeros([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
             # z = nn.Parameter(torch.randn([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
 
@@ -257,12 +248,6 @@ class MAMLFewShotClassifier(nn.Module):
                     training=True,
                     num_step=num_step,
                     classifier_W=classifier_W)
-
-                # z와 w 파라미터 모두에 대해 미분하여 경사 흐름을 확보합니다.
-                # all_params_for_grad = [z] + list(names_weights_copy.values())
-                # gradients = torch.autograd.grad(support_loss, all_params_for_grad, create_graph=use_second_order)
-                # z_grads = gradients[0]
-                # z = z - self.args.class_embedding_learning_rate * z_grads
 
                 gradients = torch.autograd.grad(support_loss, (*names_weights_copy.values(), z),
                                                 create_graph=use_second_order) # , retain_graph=True
