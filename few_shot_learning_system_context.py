@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from meta_neural_network_architectures import VGGReLUNormNetwork
-from hypernetworks import HyperNetworkLinear, HyperNetworkAutoencoder, GNNWeightGenerator
+from hypernetworks import HyperNetworkLinear, HyperNetworkAutoencoder, GNNWeightGenerator, GATWeightGenerator
 from inner_loop_optimizers import LSLRGradientDescentLearningRule, GradientDescentLearningRule
 from utils.anyway_utils import compute_prototypes
 
@@ -79,7 +79,8 @@ class MAMLFewShotClassifier(nn.Module):
                                                args=self.args,
                                                device=self.device)
         elif 'GNN' in self.args.experiment_name:
-            self.hypernet = GNNWeightGenerator(d_proto=self.args.num_class_embedding_params, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
+            # self.hypernet = GNNWeightGenerator(d_proto=self.args.num_class_embedding_params, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
+            self.hypernet = GATWeightGenerator(d_proto=self.args.num_class_embedding_params, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
 
 
         print("Outer Loop parameters")
@@ -235,10 +236,26 @@ class MAMLFewShotClassifier(nn.Module):
 
             z = nn.Parameter(torch.zeros([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
             # z = nn.Parameter(torch.randn([ncs, self.args.num_class_embedding_params]), requires_grad=True).to(self.device)
+            # z = z * 1e-3
 
             for num_step in range(num_steps):
 
-                classifier_W = self.hypernet(z)
+                # --- [수정 1: Hypernet 호출 방식 통합 및 Adj 생성 (GNN)] ---
+                if 'GNN' in self.args.experiment_name:
+                    # GNN의 Adj 생성 (z의 유사도 기반, GNNWeightGenerator는 W, b 튜플 반환)
+                    if num_step == 0:
+                        adj = None
+                    else:
+                        print("ncs == ", ncs)
+                        z_norm = F.normalize(z, p=2, dim=1)
+                        adj = torch.matmul(z_norm, z_norm.transpose(0, 1))
+                        adj = adj - torch.eye(ncs, device=adj.device)
+                    classifier_W, classifier_b = self.hypernet(z, adj)
+                else:
+                    # Generator/AutoEncoder는 W만 반환한다고 가정
+                    classifier_W = self.hypernet(z)
+                    classifier_b = None
+                # -----------------------------------------------------------
 
                 support_loss, support_preds = self.net_forward(
                     x=x_support_set_task,
@@ -264,7 +281,11 @@ class MAMLFewShotClassifier(nn.Module):
 
                 elif num_step == (self.args.number_of_training_steps_per_iter - 1):
 
-                    classifier_W = self.hypernet(z)
+                    if 'GNN' in self.args.experiment_name:
+                        classifier_W, classifier_b = self.hypernet(z, adj)
+                    else:
+                        classifier_W = self.hypernet(z)
+                        classifier_b = None
 
                     target_loss, target_preds = self.net_forward(x=x_target_set_task,
                                                                  y=y_target_set_task, weights=names_weights_copy,
