@@ -38,3 +38,34 @@ def anyway_ensemble_logits(logits_O, S):
     # 논문 테스트 시 ensembling: Σ_j S_j(logit) (softmax 전 합)  :contentReference[oaicite:3]{index=3}
     chunks = [logits_O[:, torch.as_tensor(s, device=logits_O.device)] for s in S]
     return torch.stack(chunks, dim=0).sum(dim=0)  # (B, N)
+
+
+
+def compute_arcface_logits(embeddings, classifier_W, y, margin=0.5, scale=30.0):
+    """
+    ArcFace 스타일의 logits 계산.
+    embeddings: [B, D]
+    classifier_W: [C, D]
+    y: [B]
+    """
+
+    # L2 정규화
+    f = F.normalize(embeddings, p=2, dim=1)      # [B, D]
+    W = F.normalize(classifier_W, p=2, dim=1)    # [C, D]
+
+    # cos(theta)
+    cos_theta = torch.mm(f, W.t())               # [B, C]
+    cos_theta = torch.clamp(cos_theta, -1.0 + 1e-7, 1.0 - 1e-7)
+
+    # theta, cos(theta + m)
+    theta = torch.acos(cos_theta)
+    cos_theta_m = torch.cos(theta + margin)
+
+    # 정답 클래스에만 margin 적용
+    one_hot = F.one_hot(y, num_classes=W.size(0)).float().to(embeddings.device)
+    logits = one_hot * cos_theta_m + (1.0 - one_hot) * cos_theta
+
+    # scaling
+    logits = scale * logits
+
+    return logits

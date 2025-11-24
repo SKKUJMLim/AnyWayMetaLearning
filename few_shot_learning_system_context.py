@@ -7,9 +7,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from meta_neural_network_architectures import VGGReLUNormNetwork
-from hypernetworks import HyperNetworkLinear, HyperNetworkAutoencoder, GNNWeightGenerator, GATWeightGenerator
+from hypernetworks import HyperNetworkLinear, HyperNetworkAutoencoder
 from inner_loop_optimizers import LSLRGradientDescentLearningRule, GradientDescentLearningRule
-from utils.anyway_utils import compute_prototypes
+from utils.anyway_utils import compute_prototypes, compute_arcface_logits
 
 def set_torch_seed(seed):
     """
@@ -68,19 +68,11 @@ class MAMLFewShotClassifier(nn.Module):
         self.args = args
         self.to(device)
 
-        if 'AutoEncoder' in self.args.experiment_name:
-            self.hypernet = HyperNetworkAutoencoder(input_dim=self.args.num_class_embedding_params,
-                                                    output_dim=self.args.num_class_embedding_params,
-                                                    latent_dim=64)
-        elif 'Generator' in self.args.experiment_name:
-            self.hypernet = HyperNetworkLinear(input_dim=self.args.num_class_embedding_params,
-                                               hidden_dim=512,
-                                               output_dim=1600,
-                                               args=self.args,
-                                               device=self.device)
-        elif 'GNN' in self.args.experiment_name:
-            # self.hypernet = GNNWeightGenerator(d_proto=self.args.num_class_embedding_params, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
-            self.hypernet = GATWeightGenerator(d_proto=self.args.num_class_embedding_params, hidden=256, out_dim=1600, use_bias=False, dropout_p=0.1)
+        self.hypernet = HyperNetworkLinear(input_dim=self.args.num_class_embedding_params,
+                                           hidden_dim=512,
+                                           output_dim=1600,
+                                           args=self.args,
+                                           device=self.device)
 
 
         print("Outer Loop parameters")
@@ -240,21 +232,10 @@ class MAMLFewShotClassifier(nn.Module):
 
             for num_step in range(num_steps):
 
-                # --- [수정 1: Hypernet 호출 방식 통합 및 Adj 생성 (GNN)] ---
-                if 'GNN' in self.args.experiment_name:
-                    # GNN의 Adj 생성 (z의 유사도 기반, GNNWeightGenerator는 W, b 튜플 반환)
-                    if num_step == 0:
-                        adj = None
-                    else:
-                        print("ncs == ", ncs)
-                        z_norm = F.normalize(z, p=2, dim=1)
-                        adj = torch.matmul(z_norm, z_norm.transpose(0, 1))
-                        adj = adj - torch.eye(ncs, device=adj.device)
-                    classifier_W, classifier_b = self.hypernet(z, adj)
-                else:
-                    # Generator/AutoEncoder는 W만 반환한다고 가정
-                    classifier_W = self.hypernet(z)
-                    classifier_b = None
+                # Generator/AutoEncoder는 W만 반환한다고 가정
+                classifier_W = self.hypernet(z)
+                classifier_b = None
+
                 # -----------------------------------------------------------
 
                 support_loss, support_preds = self.net_forward(
@@ -264,7 +245,8 @@ class MAMLFewShotClassifier(nn.Module):
                     backup_running_statistics=num_step == 0,
                     training=True,
                     num_step=num_step,
-                    classifier_W=classifier_W)
+                    classifier_W=classifier_W,
+                    inner_level=True)
 
                 gradients = torch.autograd.grad(support_loss, (*names_weights_copy.values(), z),
                                                 create_graph=use_second_order) # , retain_graph=True
@@ -281,17 +263,15 @@ class MAMLFewShotClassifier(nn.Module):
 
                 elif num_step == (self.args.number_of_training_steps_per_iter - 1):
 
-                    if 'GNN' in self.args.experiment_name:
-                        classifier_W, classifier_b = self.hypernet(z, adj)
-                    else:
-                        classifier_W = self.hypernet(z)
-                        classifier_b = None
+                    classifier_W = self.hypernet(z)
+                    classifier_b = None
 
                     target_loss, target_preds = self.net_forward(x=x_target_set_task,
                                                                  y=y_target_set_task, weights=names_weights_copy,
                                                                  backup_running_statistics=False, training=True,
                                                                  num_step=num_step,
-                                                                 classifier_W=classifier_W)
+                                                                 classifier_W=classifier_W,
+                                                                 inner_level=False)
                     task_losses.append(target_loss)
 
             per_task_target_preds[task_id] = target_preds.detach().cpu().numpy()
@@ -313,34 +293,78 @@ class MAMLFewShotClassifier(nn.Module):
 
         return losses, per_task_target_preds
 
-    def net_forward(self, x, y, weights, backup_running_statistics, training, num_step, classifier_W):
+    def net_forward(self, x, y, weights, backup_running_statistics, training, num_step, classifier_W, inner_level=True):
         """
-        A base model forward pass on some data points x. Using the parameters in the weights dictionary. Also requires
-        boolean flags indicating whether to reset the running statistics at the end of the run (if at evaluation phase).
-        A flag indicating whether this is the training session and an int indicating the current step's number in the
-        inner loop.
-        :param x: A data batch of shape b, c, h, w
-        :param y: A data targets batch of shape b, n_classes
-        :param weights: A dictionary containing the weights to pass to the network.
-        :param backup_running_statistics: A flag indicating whether to reset the batch norm running statistics to their
-         previous values after the run (only for evaluation)
-        :param training: A flag indicating whether the current process phase is a training or evaluation.
-        :param num_step: An integer indicating the number of the step in the inner loop.
-        :return: the crossentropy losses with respect to the given y, the predictions of the base model.
+        :return: (loss, logits_for_pred)
         """
+        embeddings = self.classifier.forward(
+            x=x,
+            params=weights,
+            training=training,
+            backup_running_statistics=backup_running_statistics,
+            num_step=num_step
+        )  # [B, D]
 
-        embeddings = self.classifier.forward(x=x, params=weights,
-                                        training=training,
-                                        backup_running_statistics=backup_running_statistics, num_step=num_step)
+        # 2) ArcFace를 사용할지 + support/target에 따라 loss용 logits 결정
+        if self.args.use_arcface and inner_level:
+            # -------- support set: ArcFace loss 사용 --------
+            margin = 0.5
+            scale = 30.0
 
+            # (1) loss용 ArcFace logits (정답 y 사용)
+            logits_for_loss = compute_arcface_logits(
+                embeddings=embeddings,
+                classifier_W=classifier_W,
+                y=y,
+                margin=margin,
+                scale=scale,
+            )
 
-        preds = embeddings @ classifier_W.T  # [B, N]
-        # if classifier_b is not None:
-        #     preds = preds + classifier_b.unsqueeze(0)  # [B, N]
+            # (2) 예측용 logits: margin 없이 cos(theta)*scale
+            #     (inference 관점에서의 decision boundary에 맞춤)
+            f = F.normalize(embeddings, p=2, dim=1)  # [B, D]
+            W = F.normalize(classifier_W, p=2, dim=1)  # [C_cls, D]
+            cos_theta = torch.mm(f, W.t())  # [B, C_cls]
+            logits_for_pred = scale * cos_theta
 
-        loss = F.cross_entropy(input=preds, target=y)
+        else:
+            # -------- target set 또는 ArcFace 미사용: 일반 CE --------
+            # 기존처럼 linear classifier 사용 (정규화 없이)
+            logits_for_loss = embeddings @ classifier_W.T  # [B, C_cls]
+            logits_for_pred = logits_for_loss
 
-        return loss, preds
+        # 3) CE loss는 항상 logits_for_loss 기준
+        loss = F.cross_entropy(input=logits_for_loss, target=y)
+
+        return loss, logits_for_pred
+
+    # def net_forward(self, x, y, weights, backup_running_statistics, training, num_step, classifier_W):
+    #     """
+    #     A base model forward pass on some data points x. Using the parameters in the weights dictionary. Also requires
+    #     boolean flags indicating whether to reset the running statistics at the end of the run (if at evaluation phase).
+    #     A flag indicating whether this is the training session and an int indicating the current step's number in the
+    #     inner loop.
+    #     :param x: A data batch of shape b, c, h, w
+    #     :param y: A data targets batch of shape b, n_classes
+    #     :param weights: A dictionary containing the weights to pass to the network.
+    #     :param backup_running_statistics: A flag indicating whether to reset the batch norm running statistics to their
+    #      previous values after the run (only for evaluation)
+    #     :param training: A flag indicating whether the current process phase is a training or evaluation.
+    #     :param num_step: An integer indicating the number of the step in the inner loop.
+    #     :return: the crossentropy losses with respect to the given y, the predictions of the base model.
+    #     """
+    #
+    #     embeddings = self.classifier.forward(x=x, params=weights,
+    #                                     training=training,
+    #                                     backup_running_statistics=backup_running_statistics, num_step=num_step)
+    #
+    #     preds = embeddings @ classifier_W.T  # [B, C]
+    #     # if classifier_b is not None:
+    #     #     preds = preds + classifier_b.unsqueeze(0)  # [B, N]
+    #
+    #     loss = F.cross_entropy(input=preds, target=y)
+    #
+    #     return loss, preds
 
     def trainable_parameters(self):
         """
