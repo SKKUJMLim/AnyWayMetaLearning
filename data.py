@@ -177,10 +177,16 @@ class FewShotLearningDatasetParallel(Dataset):
     def _sample_any_way_N_for_index(self, set_name, idx):
         group = int(idx // self.effective_batch_size)
 
-        # train/val 모두 any-way (any_way_setting=True일 때)
-        if self.any_way_setting and set_name in ("train", "val"):
-            rng = np.random.RandomState(self.seed[set_name] + group)  # 진행도에 따라 다양해짐
+        # # train/val 모두 any-way (any_way_setting=True일 때)
+        # if self.any_way_setting and set_name in ("train", "val"):
+        #     rng = np.random.RandomState(self.seed[set_name] + group)  # 진행도에 따라 다양해짐
+        #     return int(rng.choice(self.any_way_n_choices))
+
+        # train만 any-way
+        if self.any_way_setting and set_name == "train":
+            rng = np.random.RandomState(self.seed[set_name] + group)
             return int(rng.choice(self.any_way_n_choices))
+
 
         # test 또는 any-way off → 고정 N
         return int(self.num_classes_per_set)

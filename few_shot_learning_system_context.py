@@ -68,11 +68,16 @@ class MAMLFewShotClassifier(nn.Module):
         self.args = args
         self.to(device)
 
-        self.hypernet = HyperNetworkLinear(input_dim=self.args.num_class_embedding_params,
-                                           hidden_dim=512,
-                                           output_dim=1600,
-                                           args=self.args,
-                                           device=self.device)
+        if 'Autoencoder' in self.args.experiment_name:
+            self.hypernet = HyperNetworkAutoencoder(input_dim=self.args.num_class_embedding_params,
+                                                    output_dim=self.args.num_class_embedding_params,
+                                                    latent_dim=64)
+        elif 'Generator' in self.args.experiment_name:
+            self.hypernet = HyperNetworkLinear(input_dim=self.args.num_class_embedding_params,
+                                               hidden_dim=512,
+                                               output_dim=1600,
+                                               args=self.args,
+                                               device=self.device)
 
 
         print("Outer Loop parameters")
@@ -252,7 +257,7 @@ class MAMLFewShotClassifier(nn.Module):
                                                 create_graph=use_second_order) # , retain_graph=True
                 grads, context_grads = gradients[:-1], gradients[-1]
 
-                z = z - self.args.class_embedding_learning_rate * context_grads
+                z = z - self.args.init_inner_loop_learning_rate * context_grads
 
                 if use_multi_step_loss_optimization and training_phase and epoch < self.args.multi_step_loss_num_epochs:
                     target_loss, target_preds = self.net_forward(x=x_target_set_task,

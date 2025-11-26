@@ -232,6 +232,18 @@ class ExperimentBuilder(object):
         epoch_summary_losses["epoch"] = self.epoch
         epoch_summary_losses['epoch_run_time'] = time.time() - start_time
 
+        # ====== [추가] epoch별 GPU peak 메모리 기록 ======
+        if torch.cuda.is_available():
+            # max_memory_allocated: 실제 텐서가 사용한 메모리
+            # MiB 단위로 저장
+            epoch_summary_losses['epoch_peak_mem_mib'] = (
+                    torch.cuda.max_memory_allocated(device=self.device) / (1024 ** 2)
+            )
+            # 다음 epoch을 위해 리셋
+            torch.cuda.reset_peak_memory_stats(self.device)
+        # ===============================================
+
+
         if create_summary_csv:
             self.summary_statistics_filepath = save_statistics(self.logs_filepath, list(epoch_summary_losses.keys()),
                                                                create=True)

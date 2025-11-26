@@ -23,7 +23,7 @@ class GradientDescentLearningRule(nn.Module):
     will correspond to a stochastic gradient descent learning rule.
     """
 
-    def __init__(self, device, learning_rate=1e-3):
+    def __init__(self, device, args, learning_rate=1e-3):
         """Creates a new learning rule object.
         Args:
             learning_rate: A postive scalar to scale gradient updates to the
@@ -33,8 +33,9 @@ class GradientDescentLearningRule(nn.Module):
         """
         super(GradientDescentLearningRule, self).__init__()
         assert learning_rate > 0., 'learning_rate should be positive.'
-        self.learning_rate = torch.ones(1) * learning_rate
-        self.learning_rate.to(device)
+        self.learning_rate = learning_rate
+        # self.learning_rate.to(device)
+        self.args = args
 
     def update_params(self, names_weights_dict, names_grads_wrt_params_dict, num_step, tau=0.9):
         """Applies a single gradient descent update to all parameters.
